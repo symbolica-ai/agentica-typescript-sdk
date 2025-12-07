@@ -1,0 +1,70 @@
+{
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "ESNext",
+        "moduleResolution": "node",
+        "lib": ["ES2022", "DOM", "DOM.Iterable"],
+        "outDir": "./dist",
+        "strictNullChecks": true,
+        "strict": true,
+        "esModuleInterop": true,
+        "types": ["node"],
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+        "declaration": true,
+        "declarationMap": true,
+        "sourceMap": true,
+        "experimentalDecorators": true,
+        "emitDecoratorMetadata": true,
+        "resolveJsonModule": true,
+        "allowSyntheticDefaultImports": true,
+        "jsx": "react",
+        "jsxFactory": "React.createElement",
+        "jsxFragmentFactory": "React.Fragment",
+        "plugins": [
+            {
+            "transform": "./dist-transformer/transformer/transformer.js",
+            "type": "program",
+            "tsConfig": "./tsconfig.transformer.json",
+            "resolvePathAliases": "always"
+            },
+            { "transform": "typescript-transform-paths" }
+        ],
+        "baseUrl": "src",
+        "paths": {
+            "@/*": ["./*"],
+            "@bundlers/*": ["bundlers/*"],
+            "@client-session-manager/*": ["client-session-manager/*"],
+            "@logging/*": ["logging/*"],
+            "@warpc/*": ["warpc/*"],
+            "@agentica/*": ["agentica/*"],
+            "@agentica-client/*": ["agentica-client/*"],
+            "@types/*": ["types/*"],
+            "@transformer/*": ["transformer/*"]
+        },
+        "removeComments": true
+    },
+    "include": [
+        "src/**/*",
+        "bin/*",
+        "demo/**/*",
+        "playground/**/*",
+        "tests/**/*"
+    ],
+    "exclude": [
+        "node_modules",
+        "dist",
+        "dist-transformer",
+        "default-configs",
+        "demo/supabase/**/*",
+        "demo/exclude/**/*",
+        "demo/translation/demo-translation.tsx",
+        "demo/multi-agent-ui/demo-multi-agent.tsx",
+        "demo/translation/web/**/*",
+        "demo/multi-agent-ui/web/**/*"
+    ],
+    "tsc-alias": {
+        "resolveFullPaths": true,
+        "verbose": false
+    }
+}

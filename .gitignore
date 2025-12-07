@@ -1,0 +1,4 @@
+node_modules
+src/types/api.d.ts
+src/version.ts
+dist-transformer/*
