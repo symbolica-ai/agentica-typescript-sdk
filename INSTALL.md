@@ -1,3 +1,5 @@
+[[DELETE THIS]]
+
 # Packaging and Installation Guide
 
 This guide covers how Agentica is packaged, installed, and integrated into TypeScript projects.
