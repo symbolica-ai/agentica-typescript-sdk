@@ -1,0 +1,35 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2021", "DOM"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "outDir": "./dist-transformer",
+    "declaration": true,
+    "declarationMap": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "baseUrl": "src",
+    "paths": {
+      "@/*": ["./*"],
+      "@bundlers/*": ["bundlers/*"],
+      "@client-session-manager/*": ["client-session-manager/*"],
+      "@logging/*": ["logging/*"],
+      "@warpc/*": ["warpc/*"],
+      "@agentica/*": ["agentica/*"],
+      "@agentica-client/*": ["agentica-client/*"],
+      "@types/*": ["types/*"],
+      "@transformer/*": ["transformer/*"]
+    }
+  },
+  "tsc-alias": {
+    "resolveFullPaths": true,
+    "verbose": false
+  },
+  "include": ["src/transformer/**/*"],
+  "exclude": ["node_modules"]
+}

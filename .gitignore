@@ -1,0 +1,6 @@
+node_modules
+src/version.ts
+dist-transformer/*
+dist/*
+*.tar.gz
+*.tgz
