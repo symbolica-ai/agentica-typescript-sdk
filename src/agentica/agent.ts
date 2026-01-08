@@ -9,6 +9,7 @@ import {
     Chunk,
     MaxTokens,
     ModelStrings,
+    ReasoningEffort,
     ServeResponseConfig,
     ToolModeStrings,
     Usage,
@@ -38,6 +39,7 @@ export type AgentSpawnConfig = {
     listener?: (iid: string, chunk: Chunk) => void;
     maxTokens?: number | MaxTokens;
     client?: Agentica;
+    reasoningEffort?: ReasoningEffort;
 };
 
 // System prompt only overload
@@ -119,6 +121,7 @@ export class Agent implements AsyncDisposable {
             maxTokens: MaxTokens.fromMaxTokens(this.config.maxTokens),
             concepts: this.ctx.concepts,
             client: this.config.client,
+            reasoningEffort: this.config.reasoningEffort,
         };
         const { uid, runtime, sessionManager } = await createAgentEnvironment(initConfig, this.logger);
         this.uid = uid;

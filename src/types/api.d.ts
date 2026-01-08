@@ -345,6 +345,7 @@ export interface components {
             max_tokens_per_invocation?: number | null;
             max_tokens_per_round?: number | null;
             max_rounds?: number | null;
+            reasoning_effort?: ('none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh') | null;
         };
         /** MultiplexCancelMessage */
         MultiplexCancelMessage: {

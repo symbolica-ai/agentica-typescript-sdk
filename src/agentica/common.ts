@@ -17,6 +17,8 @@ import { ClassMsg } from '@/warpc/msg-protocol/concept/resource/class-msg';
 
 export type ToolModeStrings = 'code' | 'json';
 
+export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+
 export type PrimarySupportedModels =
     | 'openai:gpt-3.5-turbo'
     | 'openai:gpt-4o'
@@ -62,6 +64,7 @@ export type AgentInitializationConfig = {
     maxTokens?: MaxTokens;
     concepts?: CompiledConceptContext;
     client?: Agentica;
+    reasoningEffort?: ReasoningEffort;
 };
 
 export type AgentInvocationConfig = {
@@ -137,6 +140,7 @@ export async function createAgentEnvironment(
         max_tokens_per_invocation: config.maxTokens?.perInvocation ?? undefined,
         max_tokens_per_round: config.maxTokens?.perRound ?? undefined,
         max_rounds: config.maxTokens?.rounds ?? undefined,
+        reasoning_effort: config.reasoningEffort ?? undefined,
     };
 
     const uid = await sessionManager.newAgent(createAgentReq, logger);

@@ -36,6 +36,10 @@ See the [Quickstart Guide](https://docs.symbolica.ai/quickstart) for a complete 
 
 Node.js 20 or higher.
 
+## Acknowledgements
+
+Agentica uses a TypeScript transformer to transfer typing information from compile time to runtime. The associated bundler/build plugin was derived from the [unplugin-typia](https://github.com/ryoppippi/unplugin-typia) implementation. See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) for more information.
+
 ## Issues
 
 Please report bugs, feature requests, and other issues in the [symbolica/agentica-issues](https://github.com/symbolica-ai/agentica-issues) repository.

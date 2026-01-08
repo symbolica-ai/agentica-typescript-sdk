@@ -1,6 +1,6 @@
 {
     "name": "@symbolica/agentica",
-    "version": "0.3.1",
+    "version": "0.3.2",
     "type": "module",
     "description": "Agentica TypeScript SDK",
     "homepage": "https://www.symbolica.ai/agentica",
@@ -46,7 +46,8 @@
         "dist/",
         "dist-transformer/",
         "bun/",
-        "default-configs/"
+        "default-configs/",
+        "THIRD_PARTY_NOTICES.md"
     ],
     "license": "SEE LICENSE IN LICENSE",
     "repository": {
