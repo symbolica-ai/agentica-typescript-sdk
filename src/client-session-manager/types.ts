@@ -5,10 +5,10 @@ export type { components, operations, paths } from '../types/api.d';
 import type { components } from '../types/api.d';
 
 // Additional convenience types based on the OpenAPI schema
-// Override CreateAgentRequest to use Uint8Array for warp_globals_payload
+// Override CreateAgentRequest to use Uint8Array for warp_globals_payload and remove json field
 export type CreateAgentRequest = Omit<
     components['schemas']['CreateAgentRequest'],
-    'warp_globals_payload' | 'protocol'
+    'warp_globals_payload' | 'protocol' | 'json'
 > & {
     warp_globals_payload: Uint8Array;
     protocol?: string;

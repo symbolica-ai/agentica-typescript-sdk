@@ -81,7 +81,6 @@ export async function agenticTransformation<T = any>(
 
     try {
         // Initialize function (ephemeral agent)
-        const mode = 'code';
         const initConfig: AgentInitializationConfig = {
             premise: config?.premise,
             system: maybePromptTemplate(config?.system),
@@ -96,7 +95,6 @@ export async function agenticTransformation<T = any>(
              * so this style of prompting could be more confusing (esp. with the few-shot examples for OAI models)
              */
             //concepts: ctx.concepts,
-            mode,
         };
 
         // No globals for agentica functions, so runtime will be empty here
@@ -114,7 +112,7 @@ export async function agenticTransformation<T = any>(
             parentCallId: config?.parentCallId,
         };
 
-        const { handle, runtime } = await invokeAgent(invokeConfig, mode, logger, sessionManager, emptyRuntime);
+        const { handle, runtime } = await invokeAgent(invokeConfig, logger, sessionManager, emptyRuntime);
 
         try {
             let cancelStream: AbortController | undefined;

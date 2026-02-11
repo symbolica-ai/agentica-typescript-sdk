@@ -54,6 +54,15 @@ import { registerCleanup } from './at-exit';
 import { decodeMessage, encodeMessage, isServerMessage, uint8ArrayToBase64 } from './message-utils';
 import { Queue } from './queue';
 
+/**
+ * Encapsulates per-session-manager WebSocket connection state.
+ */
+interface SessionManagerConnection {
+    websocket: WebSocketLike;
+    sendQueue: Queue<MultiplexClientMessage>;
+    tasks: [TaskControl, TaskControl]; // [reader, writer]
+}
+
 import {
     ConnectionError,
     SDKUnsupportedError,
@@ -108,9 +117,11 @@ interface TaskControl {
  * Maintains identical structure and method signatures
  */
 export class ClientSessionManager {
-    private websocket: WebSocketLike | null = null;
-    private tasks: [TaskControl, TaskControl] | null = null;
-    private sendQueue: Queue<MultiplexClientMessage> | null = null;
+    // Per-session-manager WebSocket state (sm_id → connection state)
+    private sessionManagers: Map<string, SessionManagerConnection> = new Map();
+    private smLocks: Map<string, Promise<void>> = new Map();
+    private uidToSm: Map<string, string> = new Map(); // agent uid → sm_id
+
     private uidIidRecvQueue: Map<string, Map<string, Queue<Uint8Array>>>;
     private uidIidException: Map<
         string,
@@ -269,35 +280,35 @@ export class ClientSessionManager {
     }
 
     /**
-     * Background task for writing messages to WebSocket - matches Python _ws_background_task_writer
+     * Background task for writing messages to WebSocket for a specific session manager.
      */
-    private async wsBackgroundTaskWriter(control: TaskControl): Promise<void> {
+    private async smWriter(smId: string, control: TaskControl): Promise<void> {
         await waitForTracing;
 
-        const wsLogger = this.logger.withScope('ws-writer');
+        const wsLogger = this.logger.withScope(`ws-writer-${smId.slice(0, 8)}`);
         wsLogger.debug('Writer task started');
-        const ws = this.websocket!;
 
         try {
             while (!control.shouldStop) {
+                const smc = this.sessionManagers.get(smId);
+                if (!smc) {
+                    wsLogger.debug('Session manager connection removed, exiting writer');
+                    break;
+                }
+
                 try {
-                    const sendQueue = this.sendQueue;
-                    if (!sendQueue) {
-                        wsLogger.debug('Send queue removed, exiting writer');
-                        break;
-                    }
-                    const msg = await sendQueue.get();
+                    const msg = await smc.sendQueue.get();
                     const msgUid = (msg as any).uid as string | undefined;
                     const msgLogger = msgUid ? (this.uidToLogger.get(msgUid) ?? wsLogger) : wsLogger;
 
-                    if (ws.readyState !== 1) {
+                    if (smc.websocket.readyState !== 1) {
                         const error = new WebSocketConnectionError(`cannot send as websocket is not open.`);
                         enrichError(error, { uid: msgUid, sessionId: this.clientSessionId });
                         throw error;
                     }
 
                     msgLogger.debug(`Sending ${msg.type} message`);
-                    ws.send(encodeMessage(msg));
+                    smc.websocket.send(encodeMessage(msg));
                 } catch (error) {
                     if (error instanceof Error && error.message === 'Queue closed') {
                         wsLogger.debug('Queue closed, exiting writer');
@@ -309,32 +320,27 @@ export class ClientSessionManager {
             wsLogger.debug('Writer task stopped');
         } catch (error) {
             wsLogger.error('Writer task failed', error as Error);
-
-            for (const [matchId, handlers] of this.matchIid.entries()) {
-                handlers.reject(new WebSocketConnectionError(`WebSocket writer failed: ${(error as Error).message}`));
-                this.matchIid.delete(matchId);
-            }
-
-            for (const [_, exceptionMap] of this.uidIidException.entries()) {
-                for (const [_iid, handlers] of exceptionMap.entries()) {
-                    handlers.reject(
-                        new WebSocketConnectionError(`WebSocket writer failed: ${(error as Error).message}`)
-                    );
-                }
-            }
+            // Clean up this session manager only - don't affect others
+            await this._cleanupSessionManager(smId);
             throw error;
         }
     }
 
     /**
-     * Background task for reading messages from WebSocket - matches Python _ws_background_task_reader
+     * Background task for reading messages from WebSocket for a specific session manager.
      */
-    private async wsBackgroundTaskReader(control: TaskControl): Promise<void> {
+    private async smReader(smId: string, control: TaskControl): Promise<void> {
         await waitForTracing;
 
-        const wsLogger = this.logger.withScope('ws-reader');
+        const wsLogger = this.logger.withScope(`ws-reader-${smId.slice(0, 8)}`);
         wsLogger.debug('Reader task started');
-        const ws = this.websocket!;
+
+        const smc = this.sessionManagers.get(smId);
+        if (!smc) {
+            wsLogger.warn('Session manager connection not found');
+            return;
+        }
+        const ws = smc.websocket;
 
         ws.onmessage = (event) => {
             if (control.shouldStop) return;
@@ -439,60 +445,144 @@ export class ClientSessionManager {
                 wsLogger.debug(`WebSocket closed (code=${event.code}, reason=${event.reason || 'none'})`);
                 control.shouldStop = true;
 
-                for (const [matchId, handlers] of this.matchIid.entries()) {
-                    handlers.reject(
-                        new WebSocketConnectionError(`WebSocket closed: ${event.reason || 'Connection closed'}`)
-                    );
-                    this.matchIid.delete(matchId);
-                }
-
-                for (const [_, exceptionMap] of this.uidIidException.entries()) {
-                    for (const [_iid, handlers] of exceptionMap.entries()) {
-                        handlers.reject(
-                            new WebSocketConnectionError(`WebSocket closed: ${event.reason || 'Connection closed'}`)
-                        );
-                    }
-                    exceptionMap.clear();
-                }
+                // Only fail futures for agents on THIS session manager
+                this._failSmFutures(smId, `WebSocket closed: ${event.reason || 'Connection closed'}`);
                 resolve();
             };
             ws.onerror = (_error) => {
                 wsLogger.error('WebSocket error');
                 control.shouldStop = true;
 
-                for (const [matchId, handlers] of this.matchIid.entries()) {
-                    handlers.reject(new WebSocketConnectionError('WebSocket error occurred'));
-                    this.matchIid.delete(matchId);
-                }
-
-                for (const [_, exceptionMap] of this.uidIidException.entries()) {
-                    for (const [_iid, handlers] of exceptionMap.entries()) {
-                        handlers.reject(new WebSocketConnectionError('WebSocket error occurred'));
-                    }
-                    exceptionMap.clear();
-                }
+                // Only fail futures for agents on THIS session manager
+                this._failSmFutures(smId, 'WebSocket error occurred');
                 resolve();
             };
         });
     }
 
     /**
-     * Ensure WebSocket connection exists, creating it if needed.
+     * Fail pending futures for agents on a specific session manager.
      */
-    private async _ensureWebSocketConnection(): Promise<void> {
-        if (this.websocket && this.websocket.readyState === 1) {
+    private _failSmFutures(smId: string, reason: string): void {
+        // Get all UIDs that belong to this session manager
+        const affectedUids: string[] = [];
+        for (const [uid, sid] of this.uidToSm.entries()) {
+            if (sid === smId) {
+                affectedUids.push(uid);
+            }
+        }
+
+        // Fail matchIid promises for affected UIDs (we don't track which session manager a match_id belongs to,
+        // so we fail all of them when any session manager fails - this is conservative but safe)
+        for (const [matchId, handlers] of this.matchIid.entries()) {
+            handlers.reject(new WebSocketConnectionError(reason));
+            this.matchIid.delete(matchId);
+        }
+
+        // Fail exception handlers for affected UIDs
+        for (const uid of affectedUids) {
+            const exceptionMap = this.uidIidException.get(uid);
+            if (exceptionMap) {
+                for (const [_iid, handlers] of exceptionMap.entries()) {
+                    handlers.reject(new WebSocketConnectionError(reason));
+                }
+                exceptionMap.clear();
+            }
+        }
+    }
+
+    /**
+     * Clean up a specific session manager's connection without affecting others.
+     */
+    private async _cleanupSessionManager(smId: string): Promise<void> {
+        const smc = this.sessionManagers.get(smId);
+        if (!smc) {
             return;
         }
 
+        this.logger.debug(`Cleaning up session manager ${smId.slice(0, 8)}`);
+        this.sessionManagers.delete(smId);
+        this.smLocks.delete(smId);
+
+        // Stop tasks
+        const [readerControl, writerControl] = smc.tasks;
+        readerControl.shouldStop = true;
+        writerControl.shouldStop = true;
+
+        // Close send queue
+        smc.sendQueue.close();
+
+        // Close WebSocket gracefully
+        try {
+            if (smc.websocket.readyState === 0 || smc.websocket.readyState === 1) {
+                smc.websocket.close(1000, 'Normal closure');
+            }
+        } catch (error) {
+            this.logger.warn(`Failed to close WebSocket for session manager ${smId.slice(0, 8)}`, error as Error);
+        }
+
+        // Wait for tasks to complete
+        await Promise.allSettled([readerControl.promise, writerControl.promise]);
+
+        // Fail pending futures for agents on this session manager
+        this._failSmFutures(smId, 'Session manager connection closed');
+
+        // Clean up agent-to-session-manager mappings
+        const affectedUids: string[] = [];
+        for (const [uid, sid] of this.uidToSm.entries()) {
+            if (sid === smId) {
+                affectedUids.push(uid);
+            }
+        }
+        for (const uid of affectedUids) {
+            this.uidToSm.delete(uid);
+        }
+
+        this.logger.debug(`Cleaned up session manager ${smId.slice(0, 8)}`);
+    }
+
+    /**
+     * Ensure WebSocket connection exists for a specific session manager, creating it if needed.
+     */
+    private async _ensureSmConnection(smId: string): Promise<void> {
+        // Fast path: connection already exists
+        const existing = this.sessionManagers.get(smId);
+        if (existing && existing.websocket.readyState === 1) {
+            return;
+        }
+
+        // Check if another call is already creating this connection
+        const existingLock = this.smLocks.get(smId);
+        if (existingLock) {
+            await existingLock;
+            return;
+        }
+
+        // Create lock IMMEDIATELY after check - no await between check and set
+        let resolveLock: () => void;
+        const lockPromise = new Promise<void>((resolve) => {
+            resolveLock = resolve;
+        });
+        this.smLocks.set(smId, lockPromise);
+
+        // Now safe to yield
         await waitForTracing;
 
-        const span = this.logger.startSpan('sdk.websocket_connection');
+        const span = this.logger.startSpan('sdk.sm_connection');
+        span.setAttribute('session_manager.id', smId);
 
         try {
-            this.sendQueue = new Queue<MultiplexClientMessage>();
+            // Double-check after acquiring lock
+            const doubleCheck = this.sessionManagers.get(smId);
+            if (doubleCheck && doubleCheck.websocket.readyState === 1) {
+                resolveLock!();
+                this.smLocks.delete(smId);
+                return;
+            }
 
+            const sendQueue = new Queue<MultiplexClientMessage>();
             const websocket_uri = `${this.baseWs}/socket`;
-            this.logger.debug(`Connecting WebSocket`);
+            this.logger.debug(`Connecting WebSocket for session manager ${smId.slice(0, 8)}`);
             span.setAttribute('websocket.uri', websocket_uri);
             span.setAttribute('websocket.state', 'connecting');
 
@@ -504,23 +594,19 @@ export class ClientSessionManager {
             headers['x-client-session-id'] = this.clientSessionId;
 
             // Inject trace context into WebSocket headers for distributed tracing
-            // Execute in span's context to ensure proper trace propagation (like Python's inject(headers, context=ctx))
             if (span.executeInContext) {
                 span.executeInContext(() => {
                     injectTraceContext(headers);
                 });
             } else {
-                // Fallback: pass span context directly
                 injectTraceContext(headers, span);
             }
 
-            // Pass null for apiKey since headers already has Authorization
             const ws = await createWebSocket(websocket_uri, this.apiKey, headers);
             ws.binaryType = 'arraybuffer';
 
-            return new Promise((resolve, reject) => {
+            return new Promise<void>((resolve, reject) => {
                 ws.onopen = () => {
-                    this.websocket = ws;
                     try {
                         (ws as any)._socket?.unref?.();
                     } catch {
@@ -536,25 +622,45 @@ export class ClientSessionManager {
                         promise: Promise.resolve(),
                     };
 
-                    readerControl.promise = this.wsBackgroundTaskReader(readerControl).catch((error) => {
-                        this.logger.error('Reader background task crashed', error as Error);
+                    // Store the session manager connection first so tasks can access it
+                    const smc: SessionManagerConnection = {
+                        websocket: ws,
+                        sendQueue,
+                        tasks: [readerControl, writerControl],
+                    };
+                    this.sessionManagers.set(smId, smc);
+
+                    // Start per-session-manager reader and writer tasks
+                    readerControl.promise = this.smReader(smId, readerControl).catch((error) => {
+                        this.logger.error(
+                            `Reader task crashed for session manager ${smId.slice(0, 8)}`,
+                            error as Error
+                        );
                     });
-                    writerControl.promise = this.wsBackgroundTaskWriter(writerControl).catch((error) => {
-                        this.logger.error('Writer background task crashed', error as Error);
+                    writerControl.promise = this.smWriter(smId, writerControl).catch((error) => {
+                        this.logger.error(
+                            `Writer task crashed for session manager ${smId.slice(0, 8)}`,
+                            error as Error
+                        );
                     });
 
-                    this.tasks = [readerControl, writerControl];
-                    this.logger.info(`WebSocket connected`);
+                    this.logger.info(`WebSocket connected for session manager ${smId.slice(0, 8)}`);
                     span.setAttribute('websocket.state', 'connected');
                     span.end();
+                    resolveLock();
+                    this.smLocks.delete(smId);
                     resolve();
                 };
 
                 ws.onerror = (error) => {
-                    this.logger.error(`WebSocket connection failed:\n${error.toString()}`);
+                    this.logger.error(
+                        `WebSocket connection failed for session manager ${smId.slice(0, 8)}:\n${error.toString()}`
+                    );
                     span.setAttribute('websocket.state', 'error');
                     span.recordException(error as Error);
                     span.end();
+                    resolveLock();
+                    this.smLocks.delete(smId);
                     reject(new WebSocketConnectionError('WebSocket connection failed'));
                 };
             });
@@ -562,6 +668,8 @@ export class ClientSessionManager {
             span.setAttribute('websocket.state', 'error');
             span.recordException(error as Error);
             span.end();
+            resolveLock!();
+            this.smLocks.delete(smId);
             throw error;
         }
     }
@@ -658,11 +766,30 @@ export class ClientSessionManager {
                 }
             }
 
-            const uid = await response.text();
+            // Parse JSON response: { uid, session_manager_id }
+            const responseData = await response.json();
+            const uid = responseData.uid as string;
+            const smId = responseData.session_manager_id as string;
+
+            // Validate response fields
+            if (!uid) {
+                logger.error(`Server response missing "uid" field: ${JSON.stringify(responseData)}`);
+                throw new ConnectionError('Invalid server response: missing "uid" field');
+            }
+            if (!smId) {
+                logger.error(`Server response missing "session_manager_id" field: ${JSON.stringify(responseData)}`);
+                throw new ConnectionError('Invalid server response: missing "session_manager_id" field');
+            }
+
             logger.info('Created agent');
             span.setAttribute('agent.uid', uid);
+            span.setAttribute('agent.session_manager_id', smId);
 
-            await this._ensureWebSocketConnection();
+            // Track which session manager this agent belongs to
+            this.uidToSm.set(uid, smId);
+
+            // Ensure WebSocket connection for this session manager
+            await this._ensureSmConnection(smId);
 
             this.knownUids.add(uid);
             this._initAgentState(uid, parentLogger);
@@ -703,8 +830,24 @@ export class ClientSessionManager {
                 throw error;
             }
 
+            // Get session manager for this agent
+            const smId = this.uidToSm.get(uid);
+            if (!smId) {
+                const error = new WebSocketConnectionError(`No session manager found for agent ${uid}`);
+                enrichError(error, { uid, sessionId: this.clientSessionId });
+                throw error;
+            }
+
+            const smc = this.sessionManagers.get(smId);
+            if (!smc || smc.websocket.readyState !== 1) {
+                const error = new WebSocketConnectionError(`No active connection for session manager ${smId}`);
+                enrichError(error, { uid, sessionId: this.clientSessionId });
+                throw error;
+            }
+
             // Add attributes matching Python SDK
             span.setAttribute('agent.uid', uid);
+            span.setAttribute('agent.session_manager_id', smId);
             span.setAttribute('agent.task_desc', typeof taskDesc === 'string' ? taskDesc : taskDesc.template);
             span.setAttribute('invocation.streaming', streaming);
 
@@ -719,13 +862,14 @@ export class ClientSessionManager {
                 streaming: streaming,
             };
 
-            invLogger.debug(`Invoking with match_id=${matchId}`);
+            invLogger.debug(`Invoking with match_id=${matchId} on session manager ${smId.slice(0, 8)}`);
 
             const iidPromise = new Promise<string>((resolve, reject) => {
                 this.matchIid.set(matchId, { resolve, reject });
             });
 
-            this.sendQueue!.put(msg);
+            // Route to the correct session manager's send queue
+            smc.sendQueue.put(msg);
 
             const iid = await iidPromise;
             this.iidToUid.set(iid, uid);
@@ -745,8 +889,15 @@ export class ClientSessionManager {
             })();
             this.uidIidException.get(uid)!.set(iid, resolvers);
 
+            // Capture smId for the closure
+            const capturedSmId = smId;
+
             return <AgentInvocationHandle>{
                 send_message: async (data: Uint8Array) => {
+                    const currentSmc = this.sessionManagers.get(capturedSmId);
+                    if (!currentSmc || currentSmc.websocket.readyState !== 1) {
+                        throw new WebSocketConnectionError(`Session manager connection closed for ${capturedSmId}`);
+                    }
                     const dataMsg: MultiplexDataMessage = {
                         type: 'data',
                         uid,
@@ -754,7 +905,7 @@ export class ClientSessionManager {
                         data,
                         timestamp: new Date().toISOString(),
                     };
-                    this.sendQueue!.put(dataMsg);
+                    currentSmc.sendQueue.put(dataMsg);
                     invLogger.debug(`Queued ${data.length} bytes to send`);
                 },
                 recv_message: async (): Promise<Uint8Array> => {
@@ -991,33 +1142,37 @@ export class ClientSessionManager {
      * @param lastTotal - Previous cumulative total (for cross-invocation adjustment)
      * @returns Object containing the usage for this invocation and the new cumulative total
      */
-    async fetchUsage(uid: string, iid: string, lastTotal?: Usage): Promise<{ usage: Usage; newTotal: Usage }> {
+    async fetchUsage(uid: string, iid: string, _lastTotal?: Usage): Promise<{ usage: Usage; newTotal: Usage }> {
         // Fetch logs for this invocation and sum usages
+        // Each log entry contains non-cumulative usage values, so we just add them up
+        // The logs are already filtered by iid, so they only contain this invocation's data
         let total = Usage.zero();
         const logs = await this.logs(uid, iid, { type: 'sm_inference_usage' });
 
         for (const log of logs) {
-            const logUsage = log.usage as Record<string, number>;
+            const logUsage = log.usage as Record<string, unknown>;
             if (logUsage) {
-                total = total.add(Usage.fromCompletions(logUsage, total));
+                // Don't pass lastUsage - each log entry is already non-cumulative
+                total = total.add(Usage.fromCompletions(logUsage));
             }
         }
 
-        let usage = total;
-        if (lastTotal) {
-            // Subtract previous cumulative total, but keep output_tokens as-is
-            // since output_tokens is already absolute (not cumulative)
-            usage = total.sub(lastTotal.replace({ outputTokens: 0 }));
-        }
-
-        return { usage, newTotal: total };
+        return { usage: total, newTotal: total };
     }
 
     /**
      * Check if agent exists - matches Python agent_exists
      */
     agentExists(uid: string): boolean {
-        return this.knownUids.has(uid) && this.websocket !== null && this.websocket.readyState === 1; // 1 = OPEN
+        if (!this.knownUids.has(uid)) {
+            return false;
+        }
+        const smId = this.uidToSm.get(uid);
+        if (!smId) {
+            return false;
+        }
+        const smc = this.sessionManagers.get(smId);
+        return smc !== undefined && smc.websocket.readyState === 1; // 1 = OPEN
     }
 
     /**
@@ -1064,7 +1219,7 @@ export class ClientSessionManager {
     }
 
     /**
-     * Close a specific agent's resources (does not close the shared WebSocket)
+     * Close a specific agent's resources (does not close the session manager's WebSocket unless it's the last agent)
      */
     async closeAgent(uid: string): Promise<void> {
         const logger = this.uidToLogger.get(uid) ?? this.logger;
@@ -1090,6 +1245,7 @@ export class ClientSessionManager {
         this.uidIidException.delete(uid);
         this.knownUids.delete(uid);
         this.uidToLogger.delete(uid);
+        this.uidToSm.delete(uid);
 
         logger.debug(`Closed agent ${uid.slice(0, 8)}`);
 
@@ -1109,40 +1265,18 @@ export class ClientSessionManager {
 
         try {
             const agentCount = this.knownUids.size;
-            this.logger.debug(`CSM Stop: stopping with ${agentCount} agent(s)`);
+            const smCount = this.sessionManagers.size;
+            this.logger.debug(`CSM Stop: stopping with ${agentCount} agent(s) on ${smCount} session manager(s)`);
             span.setAttribute('agent_count', agentCount);
+            span.setAttribute('session_manager_count', smCount);
 
             // Close all agents (cleans up per-agent state and destroys on server)
             const uids = Array.from(this.knownUids);
             await Promise.allSettled(uids.map((uid) => this.closeAgent(uid)));
 
-            // Close send queue
-            if (this.sendQueue) {
-                this.sendQueue.close();
-                this.sendQueue = null;
-            }
-
-            // Close WebSocket gracefully
-            if (this.websocket) {
-                try {
-                    // 0 = CONNECTING, 1 = OPEN
-                    if (this.websocket.readyState === 0 || this.websocket.readyState === 1) {
-                        this.websocket.close(1000, 'Normal closure');
-                    }
-                } catch (error) {
-                    this.logger.warn('Failed to close WebSocket', error as Error);
-                }
-                this.websocket = null;
-            }
-
-            // Stop tasks
-            if (this.tasks) {
-                const [readerControl, writerControl] = this.tasks;
-                readerControl.shouldStop = true;
-                writerControl.shouldStop = true;
-                await Promise.allSettled([readerControl.promise, writerControl.promise]);
-                this.tasks = null;
-            }
+            // Clean up all session manager connections
+            const smIds = Array.from(this.sessionManagers.keys());
+            await Promise.allSettled(smIds.map((smId) => this._cleanupSessionManager(smId)));
 
             this.logger.debug('All resources cleaned up');
             this.isStopped = true;

@@ -1,6 +1,11 @@
+![Header image](assets/Header.png)
+
 # Agentica TypeScript SDK
 
 [![npm version](https://img.shields.io/npm/v/@symbolica/agentica.svg)](https://www.npmjs.com/package/@symbolica/agentica)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Discord](https://img.shields.io/discord/1470799122717085941?logo=discord&label=Discord)](https://discord.gg/bddGs8bb)
+[![Twitter](https://img.shields.io/twitter/follow/symbolica?style=flat&logo=x&label=Follow)](https://x.com/symbolica)
 
 [Agentica](https://agentica.symbolica.ai) is a type-safe AI framework that lets LLM agents integrate with your code—functions, classes, live objects, even entire SDKs. Instead of building MCP wrappers or brittle schemas, you pass references directly; the framework enforces your types at runtime, constrains return types, and manages agent lifecycle.
 
@@ -44,15 +49,7 @@ Agentica uses a TypeScript transformer to transfer typing information from compi
 
 Please report bugs, feature requests, and other issues in the [symbolica/agentica-issues](https://github.com/symbolica-ai/agentica-issues) repository.
 
-## Contributing
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines. All contributors must agree to our [CLA](./CLA.md).
-
-## Code of Conduct
-
-This project adheres to a [Code of Conduct](./CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code.
-
 ## License
 
-See [LICENSE](./LICENSE).
+This project is licensed under the [MIT License](./LICENSE).
 

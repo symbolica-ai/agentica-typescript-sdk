@@ -1,10 +1,8 @@
 import type { FrameContext } from '@/warpc/frame-context/frame-ctx';
-import type { ToolModeStrings } from '@agentica/common';
 
 import { id } from '@/common';
 
 enum Feature {
-    JSON_MODE = 'JSON mode',
     ENUM_VALUES = 'Enum support',
     FUTURE_VALUES = 'Promises and futures',
     LOCAL_FILE_ACCESS = 'Local file access',
@@ -12,11 +10,9 @@ enum Feature {
     NUMERIC_RANGES = 'Numeric range objects',
     BINARY_BUFFERS = 'Binary buffer objects',
     URL_OBJECTS = 'URL objects',
-    JSON_BASE_EXCEPTIONS = 'Richer exceptions in JSON mode',
     CUSTOM_EXCEPTIONS = 'Custom exceptions',
     TYPE = 'Type',
     TYPE_CONSTRUCTORS = 'Type constructor',
-    ARBITRARY = 'Arbitrary',
     VIRTUALIZATION = 'Virtualization',
     UNSUPPORTED_BUILTIN_CLASS = 'Unsupported builtin class',
     GENERATORS = 'Generators',
@@ -26,23 +22,10 @@ enum Feature {
 
 export class ComingSoon extends Error {
     feature: Feature;
-    mode?: ToolModeStrings;
     detail?: string;
 
-    constructor(feature: Feature, mode?: ToolModeStrings, detail: string = '') {
-        super(`${feature} ${detail} is Coming Soon${mode ? ` in ${mode} mode` : ''}!`.replace(/\s\s+/g, ' '));
-        this.feature = feature;
-        this.mode = mode;
-        this.detail = detail;
-    }
-}
-
-export class TryCodeMode extends Error {
-    feature: Feature;
-    detail: string;
-
     constructor(feature: Feature, detail: string = '') {
-        super(`${feature} ${detail} may work in 'code' mode but not in 'json' mode!`.replace(/\s\s+/g, ' '));
+        super(`${feature} ${detail} is Coming Soon!`.replace(/\s\s+/g, ' '));
         this.feature = feature;
         this.detail = detail;
     }
@@ -102,7 +85,7 @@ const isGeneratorLike = (obj: any): boolean => {
     return typeof obj.next === 'function' && typeof obj.throw === 'function' && typeof obj.return === 'function';
 };
 
-export const validateFeature = (thing: any, mode: ToolModeStrings = 'code'): void => {
+export const validateFeature = (thing: any): void => {
     const seen: Set<number> = new Set();
 
     const _check = (obj: any): void => {
@@ -113,19 +96,19 @@ export const validateFeature = (thing: any, mode: ToolModeStrings = 'code'): voi
         }
 
         if (isGeneratorLike(obj)) {
-            throw new ComingSoon(Feature.GENERATORS, mode);
+            throw new ComingSoon(Feature.GENERATORS);
         }
 
         if (isFileHandleLike(obj)) {
-            throw new ComingSoon(Feature.LOCAL_FILE_ACCESS, mode);
+            throw new ComingSoon(Feature.LOCAL_FILE_ACCESS);
         }
 
         if (ArrayBuffer.isView(obj) || obj instanceof ArrayBuffer) {
-            throw new ComingSoon(Feature.BINARY_BUFFERS, mode);
+            throw new ComingSoon(Feature.BINARY_BUFFERS);
         }
 
         if (isUrlObjectLike(obj)) {
-            throw new ComingSoon(Feature.URL_OBJECTS, mode);
+            throw new ComingSoon(Feature.URL_OBJECTS);
         }
 
         // recurse
@@ -145,41 +128,35 @@ export const validateFeature = (thing: any, mode: ToolModeStrings = 'code'): voi
             for (const v of Object.values(obj)) _check(v);
             return;
         }
-
-        if (mode === 'json') {
-            // we just do not support json-mode at all
-            throw new TryCodeMode(Feature.ARBITRARY);
-        }
     };
 
     _check(thing);
 };
 
-export const constructorTypes = (mode: ToolModeStrings = 'code'): ComingSoon => {
-    return new ComingSoon(Feature.TYPE_CONSTRUCTORS, mode, 'and built-in type support');
+export const constructorTypes = (): ComingSoon => {
+    return new ComingSoon(Feature.TYPE_CONSTRUCTORS, 'and built-in type support');
 };
 
-export const unsupportedBultinClass = (className: string, mode: ToolModeStrings = 'code'): ComingSoon => {
-    return new ComingSoon(Feature.UNSUPPORTED_BUILTIN_CLASS, mode, `(${className})`);
+export const unsupportedBultinClass = (className: string): ComingSoon => {
+    return new ComingSoon(Feature.UNSUPPORTED_BUILTIN_CLASS, `(${className})`);
 };
 
-export const unsupportedEnum = (enumName: string, mode: ToolModeStrings = 'code'): ComingSoon => {
+export const unsupportedEnum = (enumName: string): ComingSoon => {
     return new ComingSoon(
         Feature.ENUM_VALUES,
-        mode,
         `(enum '${enumName}'). Use string or number literal unions instead: type MyType = "value1" | "value2" | "value3"`
     );
 };
 
-export const interfaceReturnType = (mode: ToolModeStrings = 'code'): ComingSoon => {
-    return new ComingSoon(Feature.INTERFACE_RETURN_TYPE, mode);
+export const interfaceReturnType = (): ComingSoon => {
+    return new ComingSoon(Feature.INTERFACE_RETURN_TYPE);
 };
 
-export const intersectionReturnType = (mode: ToolModeStrings = 'code'): ComingSoon => {
-    return new ComingSoon(Feature.INTERSECTION_RETURN_TYPE, mode);
+export const intersectionReturnType = (): ComingSoon => {
+    return new ComingSoon(Feature.INTERSECTION_RETURN_TYPE);
 };
 
-export const validateReturnType = (returnType: any, context: FrameContext, mode: ToolModeStrings = 'code'): void => {
+export const validateReturnType = (returnType: any, context: FrameContext): void => {
     const seen = new Set<string>();
 
     const check = (type: any): void => {
@@ -200,11 +177,11 @@ export const validateReturnType = (returnType: any, context: FrameContext, mode:
         }
 
         if (type.kind === 'interface') {
-            throw interfaceReturnType(mode);
+            throw interfaceReturnType();
         }
 
         if (type.kind === 'intersection') {
-            throw intersectionReturnType(mode);
+            throw intersectionReturnType();
         }
 
         if (type.kind === 'union') {
@@ -218,16 +195,12 @@ export const validateReturnType = (returnType: any, context: FrameContext, mode:
     check(returnType);
 };
 
-export const throwNoJsonMode = () => {
-    throw new ComingSoon(Feature.JSON_MODE);
-};
-
 export const throwNoVirtualization = () => {
-    throw new ComingSoon(Feature.VIRTUALIZATION, 'code', 'of remote resources');
+    throw new ComingSoon(Feature.VIRTUALIZATION, 'of remote resources');
 };
 
 export const throwNoBareFutures = () => {
-    throw new ComingSoon(Feature.FUTURE_VALUES, 'code', 'as values that can be passed to the agent');
+    throw new ComingSoon(Feature.FUTURE_VALUES, 'as values that can be passed to the agent');
 };
 
 export default ComingSoon;

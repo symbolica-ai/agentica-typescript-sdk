@@ -336,7 +336,6 @@ export interface components {
             doc?: string | null;
             system?: string | components['schemas']['PromptTemplate'] | null;
             model: string;
-            json: boolean;
             streaming: boolean;
             /** Format: binary */
             warp_globals_payload: string;
@@ -346,6 +345,7 @@ export interface components {
             max_tokens_per_round?: number | null;
             max_rounds?: number | null;
             reasoning_effort?: ('none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh') | null;
+            cache_ttl?: ('5m' | '1h') | null;
         };
         /** MultiplexCancelMessage */
         MultiplexCancelMessage: {

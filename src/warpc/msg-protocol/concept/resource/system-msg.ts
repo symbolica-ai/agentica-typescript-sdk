@@ -5,13 +5,15 @@ import { DefnUID, World } from '@warpc/msg-protocol/kinds';
 import { ClassMsg } from './class-msg';
 import { FunctionMsg } from './function-msg';
 import { ObjectMsg } from './object-msg';
+import { __repr__, __str__ } from '../python-mirrors/str';
 import { AtomMsg, BoolMsg, FloatMsg, IntMsg, StrMsg } from '../value/atom';
 
 declare global {
     function magicStackTrace(): string | undefined;
-    function magicRepr(obj: any): string | null;
+    function magicRepr(obj: any): string;
     function magicLen(obj: any): number;
     function magicKeys(obj: any): string[];
+    function magicStr(obj: any): string;
     var MagicNone: object;
     var AttributeError: typeof Error;
     var KeyError: typeof Error;
@@ -22,20 +24,21 @@ globalThis.magicStackTrace = function (): string | undefined {
     return new Error().stack;
 };
 
-globalThis.magicRepr = function (obj: any): string | null {
-    // Only try to call repr if the user has intentionally specified a repr method.
-    if ('repr' in obj && typeof obj.repr === 'function') {
-        try {
-            return obj.repr();
-        } catch {
-            return null;
-        }
-    }
-    return null;
+globalThis.magicStr = function (obj: any): string {
+    return __str__(obj, {
+        maxDepth: 3,
+    });
+};
+
+globalThis.magicRepr = function (obj: any): string {
+    return __repr__(obj, {
+        maxDepth: 3,
+    });
 };
 
 globalThis.magicLen = function (obj: any): number {
-    return Array.isArray(obj) ? obj.length : Object.keys(obj).length;
+    if (typeof obj === 'string' || Array.isArray(obj)) return obj.length;
+    return Object.keys(obj).length;
 };
 
 globalThis.magicKeys = function (obj: any): string[] {
@@ -103,9 +106,11 @@ export const FUNCTION_IDS: Record<string, number> = {
     magicStackTrace: -303,
     magicLen: -304,
     magicKeys: -305,
+    magicStr: -306,
     'Object.entries': -401,
     'Object.keys': -402,
     'Object.is': -403,
+    'Object.toString': -404,
     'Reflect.getPrototypeOf': -501,
     'Reflect.isExtensible': -502,
     'Reflect.has': -503,

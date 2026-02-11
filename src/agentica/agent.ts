@@ -11,7 +11,6 @@ import {
     ModelStrings,
     ReasoningEffort,
     ServeResponseConfig,
-    ToolModeStrings,
     Usage,
     createAgentEnvironment,
     invokeAgent,
@@ -40,6 +39,8 @@ export type AgentSpawnConfig = {
     maxTokens?: number | MaxTokens;
     client?: Agentica;
     reasoningEffort?: ReasoningEffort;
+    /** Only used for Anthropic models */
+    cacheTTL?: '5m' | '1h';
 };
 
 // System prompt only overload
@@ -90,7 +91,6 @@ export class Agent implements AsyncDisposable {
     private config: AgentSpawnConfig;
     private runtime?: FrameRuntime;
     private sessionManager?: ClientSessionManager;
-    private mode: ToolModeStrings;
     private logger: ReturnType<typeof createLogger>;
 
     // Usage tracking
@@ -101,7 +101,6 @@ export class Agent implements AsyncDisposable {
     constructor(ctx: AgentSpawnCtx, config: AgentSpawnConfig) {
         this.ctx = ctx;
         this.config = config;
-        this.mode = 'code';
         this.uid = ''; // set using initialize
         this.iid = undefined; // no call yet
         this.onCallComplete = () => {}; // no-op
@@ -117,11 +116,11 @@ export class Agent implements AsyncDisposable {
             system: maybePromptTemplate(this.config.system),
             premise: this.config.premise,
             siteId: this.ctx.siteId,
-            mode: this.mode,
             maxTokens: MaxTokens.fromMaxTokens(this.config.maxTokens),
             concepts: this.ctx.concepts,
             client: this.config.client,
             reasoningEffort: this.config.reasoningEffort,
+            cacheTTL: this.config.cacheTTL,
         };
         const { uid, runtime, sessionManager } = await createAgentEnvironment(initConfig, this.logger);
         this.uid = uid;
@@ -230,13 +229,7 @@ export class Agent implements AsyncDisposable {
                 parentCallId: config?.parentCallId,
             };
 
-            const { handle } = await invokeAgent(
-                invokeConfig,
-                this.mode,
-                this.logger,
-                this.sessionManager,
-                this.runtime
-            );
+            const { handle } = await invokeAgent(invokeConfig, this.logger, this.sessionManager, this.runtime);
             this.iid = handle.iid;
 
             let cancelStream: AbortController | undefined;

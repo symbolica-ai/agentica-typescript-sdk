@@ -4,7 +4,7 @@
 # Usage: get-version.sh <mode> <package-lang> [suffix]
 #
 # Modes:
-#   prev: 0.2.0-prev210-[githash] (typescript) or 0.2.0.prev210.[githash] (python)
+#   prev: 0.2.0-dev210-[githash] (typescript) or 0.2.0.dev210.[githash] (python)
 #   dev: 0.2.0-dev210 (typescript) or 0.2.0.dev210 (python)
 #   prod: 0.2.0-[suffix] (suffix provided as third argument)
 #
@@ -94,26 +94,21 @@ if [[ $GIT_DESCRIBE =~ ^v?([0-9]+\.[0-9]+\.[0-9]+)(-[a-zA-Z0-9]+)?-([0-9]+)-g([a
             echo "$BASE_VERSION"
         fi
     else
-        # Not on exact tag: increment patch version to indicate development after the release
-        # This matches setuptools_scm's "guess-next-dev" behavior
-        IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE_VERSION"
-        NEXT_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
-        
+
         if [ "$MODE" = "prev" ]; then
             # Distinguish between preview and dev versions by appending local id
             # This format conforms to all supported language package specs
-            echo "${NEXT_VERSION}${SEP}dev${COMMIT_COUNT}+${GIT_HASH}"
+            echo "${BASE_VERSION}${SEP}dev${COMMIT_COUNT}+${GIT_HASH}"
         elif [ "$MODE" = "dev" ]; then
-            echo "${NEXT_VERSION}${SEP}dev${COMMIT_COUNT}"
+            echo "${BASE_VERSION}${SEP}dev${COMMIT_COUNT}"
         elif [ "$MODE" = "prod" ]; then
             if [ "$SUFFIX" = "release" ]; then
-                echo "${NEXT_VERSION}"
+                echo "${BASE_VERSION}"
             else
-                echo "${NEXT_VERSION}-${SUFFIX}"
+                echo "${BASE_VERSION}-${SUFFIX}"
             fi
         fi
     fi
 else
     echo "0.0.0-unknown"
 fi
-
