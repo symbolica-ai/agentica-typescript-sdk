@@ -36,6 +36,8 @@ export type AgentSpawnConfig = {
     premise?: string;
     system?: string | Template;
     listener?: (iid: string, chunk: Chunk) => void;
+    /** Whether to include usage chunks in the listener stream. Defaults to false. */
+    listenerIncludeUsage?: boolean;
     maxTokens?: number | MaxTokens;
     client?: Agentica;
     reasoningEffort?: ReasoningEffort;
@@ -79,6 +81,8 @@ export type AgentCallCtx = {
 
 export type AgentCallConfig = {
     listener?: (iid: string, chunk: Chunk) => void;
+    /** Whether to include usage chunks in the listener stream. Defaults to false. */
+    listenerIncludeUsage?: boolean;
     parentCallId?: string;
 };
 
@@ -239,13 +243,15 @@ export class Agent implements AsyncDisposable {
                 const echoCallback = config?.listener || this.config.listener; // Prioritize per-site config
 
                 // Start streaming in parallel with serving response
+                const includeUsage = config?.listenerIncludeUsage ?? this.config.listenerIncludeUsage ?? false;
                 startEchoStream(
                     this.sessionManager,
                     cancelStream.signal,
                     this.uid,
                     handle.iid,
                     echoCallback!,
-                    this.logger
+                    this.logger,
+                    includeUsage
                 );
             }
 

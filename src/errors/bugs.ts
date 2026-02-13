@@ -2,7 +2,7 @@
 
 import { AgenticaError } from './base';
 
-const GITHUB_ISSUES_URL = 'https://github.com/symbolca-ai/agentica-issues/issues';
+const GITHUB_ISSUES_URL = 'https://github.com/symbolica-ai/agentica-typescript-sdk/issues';
 
 /** Raise this error when reaching this path in the code should be considered a bug. */
 export class ThisIsABug extends AgenticaError {

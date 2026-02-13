@@ -47,7 +47,7 @@ Agentica uses a TypeScript transformer to transfer typing information from compi
 
 ## Issues
 
-Please report bugs, feature requests, and other issues in the [symbolica/agentica-issues](https://github.com/symbolica-ai/agentica-issues) repository.
+Please report bugs, feature requests, and other issues in the [symbolica-ai/agentica-typescript-sdk](https://github.com/symbolica-ai/agentica-typescript-sdk/issues) repository.
 
 ## License
 

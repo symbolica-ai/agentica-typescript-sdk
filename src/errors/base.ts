@@ -25,7 +25,9 @@ export class AgenticaError extends Error {
             msg +=
                 '\n\nIf you require customer support, please contact hello@symbolica.ai with the error details above.';
             msg +=
-                '\n\nIf you would like to file a bug report or feature request, please visit our GitHub repository at https://github.com/symbolica-ai/agentica-issues.';
+                '\n\nIf you would like to file a bug report or feature request, please do so in the corresponding component\'s GitHub repository.';
+            msg +=
+                '\n\nIf unsure, please report at https://github.com/symbolica-ai/agentica-typescript-sdk/issues.';
         }
 
         return msg;

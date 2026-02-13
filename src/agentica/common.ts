@@ -37,6 +37,7 @@ export const DEFAULT_AGENT_MAX_ROUNDS: number | null = null; // unlimited
 export interface Chunk {
     role: Role;
     content: string;
+    type?: string; // 'reasoning', 'output_text', 'code', 'usage', etc.
 }
 
 export function makeRole(role: string, _name?: string): Role {
@@ -195,12 +196,13 @@ export async function startEchoStream(
     uid: string,
     iid: string,
     echoCallback: (iid: string, chunk: Chunk) => void,
-    logger: ReturnType<typeof createLogger>
+    logger: ReturnType<typeof createLogger>,
+    includeUsage: boolean = false
 ): Promise<void> {
     let retryCount = 0;
     while (!cancelSignal.aborted) {
         try {
-            const streamIterator = csm.echo(cancelSignal, uid, iid);
+            const streamIterator = csm.echo(cancelSignal, uid, iid, includeUsage);
             for await (const chunk of streamIterator) {
                 echoCallback(iid, chunk);
             }

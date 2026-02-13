@@ -1,6 +1,6 @@
 {
     "name": "@symbolica/agentica",
-    "version": "0.4.0",
+    "version": "0.4.1",
     "type": "module",
     "description": "Agentica TypeScript SDK",
     "homepage": "https://www.symbolica.ai/agentica",
@@ -56,7 +56,7 @@
         "url": "git+https://github.com/symbolica-ai/agentica-typescript-sdk"
     },
     "bugs": {
-        "url": "https://github.com/symbolica-ai/agentica-issues",
+        "url": "https://github.com/symbolica-ai/agentica-typescript-sdk/issues",
         "email": "hello@symbolica.ai"
     },
     "devDependencies": {

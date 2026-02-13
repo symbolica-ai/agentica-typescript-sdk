@@ -7,6 +7,7 @@ import {
     Chunk,
     MaxTokens,
     ModelStrings,
+    ReasoningEffort,
     ServeResponseConfig,
     Usage,
     createAgentEnvironment,
@@ -31,9 +32,14 @@ export type AgenticConfig = {
     premise?: string;
     system?: string | Template;
     listener?: (iid: string, chunk: Chunk) => void;
+    /** Whether to include usage chunks in the listener stream. Defaults to false. */
+    listenerIncludeUsage?: boolean;
     /** Callback to receive usage statistics after the agentic function completes */
     onUsage?: (usage: Usage) => void;
     maxTokens?: MaxTokens | number;
+    reasoningEffort?: ReasoningEffort;
+    /** Only used for Anthropic models */
+    cacheTTL?: '5m' | '1h';
     parentCallId?: string;
 };
 
@@ -87,6 +93,8 @@ export async function agenticTransformation<T = any>(
             persist: false,
             model: config?.model,
             maxTokens: MaxTokens.fromMaxTokens(config?.maxTokens),
+            reasoningEffort: config?.reasoningEffort,
+            cacheTTL: config?.cacheTTL,
             streaming: !!config?.listener,
             siteId: ctx.siteId,
             /* TODO: concepts should be passed in here to allow scope to
@@ -122,7 +130,7 @@ export async function agenticTransformation<T = any>(
                 const echoCallback = config.listener;
 
                 // Start streaming in parallel with serving response
-                startEchoStream(sessionManager, cancelStream.signal, uid, handle.iid, echoCallback, logger);
+                startEchoStream(sessionManager, cancelStream.signal, uid, handle.iid, echoCallback, logger, config.listenerIncludeUsage ?? false);
             }
 
             // Serve response

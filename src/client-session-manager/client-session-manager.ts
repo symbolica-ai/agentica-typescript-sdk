@@ -928,7 +928,7 @@ export class ClientSessionManager {
     /**
      * Echo streaming endpoint
      */
-    async *echo(cancelSignal: AbortSignal, uid: string, iid?: string): AsyncGenerator<Chunk, void, unknown> {
+    async *echo(cancelSignal: AbortSignal, uid: string, iid?: string, includeUsage: boolean = false): AsyncGenerator<Chunk, void, unknown> {
         if (!this.baseHttp) {
             const error = new ConnectionError('Base HTTP endpoint must be set');
             enrichError(error, { uid, iid, sessionId: this.clientSessionId });
@@ -1002,8 +1002,16 @@ export class ClientSessionManager {
                             const typ = logmsg.type;
 
                             if (typ === 'sm_invocation_exit') {
-                                this.logger.debug('Received invocation exit signal, ending stream');
-                                return;
+                                // Only return if listening to a specific invocation.
+                                // When iid is undefined, we're listening to all invocations
+                                // for this agent and should continue across invocations.
+                                if (iid !== undefined) {
+                                    this.logger.debug('Received invocation exit signal, ending stream');
+                                    return;
+                                }
+                                yield { role: 'agent', content: '', type: 'invocation_exit' };
+                                isStreaming = false;
+                                continue;
                             }
 
                             if (typ === 'sm_monad' && logmsg.body) {
@@ -1015,7 +1023,7 @@ export class ClientSessionManager {
                                     isStreaming = true;
                                     const delta = body.args[0];
                                     if (delta && delta.content) {
-                                        yield { role: 'agent', content: delta.content };
+                                        yield { role: 'agent', content: delta.content, type: delta.type };
                                         chunkCount++;
                                     }
                                 } else if (body.type === 'delta') {
@@ -1026,12 +1034,17 @@ export class ClientSessionManager {
                                         if (role === 'system') {
                                             // Skip system messages
                                             continue;
-                                        } else if (isStreaming && role === 'agent') {
-                                            // Skip agent messages as they're already handled in stream_chunk
+                                        } else if (isStreaming && role === 'agent' && delta.type !== 'usage') {
+                                            // Skip agent messages as they're already handled in stream_chunk,
+                                            // except usage chunks which are only sent via delta
                                             continue;
                                         }
 
-                                        yield { role, content: delta.content };
+                                        if (delta.type === 'usage' && !includeUsage) {
+                                            continue;
+                                        }
+
+                                        yield { role, content: delta.content, type: delta.type };
                                         chunkCount++;
                                     }
                                 }
